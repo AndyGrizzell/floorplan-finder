@@ -19,7 +19,6 @@ export default async function handler(req, res) {
   try {
     const { fileName, fileBase64, fileType } = req.body
 
-    // Upload file to Supabase Storage
     const fileBuffer = Buffer.from(fileBase64, 'base64')
     const filePath = `floorplans/${Date.now()}_${fileName}`
 
@@ -29,13 +28,10 @@ export default async function handler(req, res) {
 
     if (uploadError) throw uploadError
 
-    // Get public URL
     const { data: { publicUrl } } = supabase.storage.from('floorplans').getPublicUrl(filePath)
 
-    // Send image to Claude for analysis
-    const analysisPrompt = `You are analyzing a vehicle floorplan image for an RV/vehicle dealership. 
+    const analysisPrompt = `You are analyzing a vehicle floorplan for an RV/vehicle dealership. 
     Analyze this floorplan carefully and extract ALL of the following details:
-    
     1. Vehicle type (Class A, Class B, Class C, Fifth Wheel, Travel Trailer, Toy Hauler, etc.)
     2. Approximate length if visible
     3. Bedroom layout (front bedroom, rear bedroom, mid bedroom, bunk beds, Murphy bed, etc.)
@@ -46,8 +42,6 @@ export default async function handler(req, res) {
     8. Special features (washer/dryer hookup, outdoor kitchen, toy hauler garage, loft, workspace, fireplace, etc.)
     9. Entry door location (front, mid, rear)
     10. Overall layout description in 2-3 sentences
-    
-    Be specific and thorough. This will be used for search purposes so capture every detail visible.
     
     Return your response as a JSON object with these exact keys:
     {
@@ -61,45 +55,44 @@ export default async function handler(req, res) {
       "special_features": "",
       "entry": "",
       "description": "",
-      "search_tags": ["tag1", "tag2", ...] 
+      "search_tags": ["tag1", "tag2", ...]
+    }`
+
+    const isPDF = fileType === 'application/pdf'
+    const contentBlock = isPDF ? {
+      type: 'document',
+      source: { type: 'base64', media_type: 'application/pdf', data: fileBase64 }
+    } : {
+      type: 'image',
+      source: { type: 'base64', media_type: fileType, data: fileBase64 }
     }
-    
-    For search_tags, include every relevant keyword someone might use to find this floorplan (e.g. "rear bath", "bunk beds", "two slides", "outdoor kitchen", etc.)`
+
+    const headers = {
+      'Content-Type': 'application/json',
+      'x-api-key': process.env.ANTHROPIC_API_KEY,
+      'anthropic-version': '2023-06-01'
+    }
+    if (isPDF) headers['anthropic-beta'] = 'pdfs-2024-09-25'
 
     const claudeResponse = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': process.env.ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01'
-      },
+      headers,
       body: JSON.stringify({
         model: 'claude-opus-4-5',
         max_tokens: 1500,
         messages: [{
           role: 'user',
-          content: [
-            {
-              type: 'image',
-              source: {
-                type: 'base64',
-                media_type: fileType,
-                data: fileBase64
-              }
-            },
-            {
-              type: 'text',
-              text: analysisPrompt
-            }
-          ]
+          content: [contentBlock, { type: 'text', text: analysisPrompt }]
         }]
       })
     })
 
     const claudeData = await claudeResponse.json()
+    if (!claudeData.content || !claudeData.content[0]) {
+      throw new Error('Claude API error: ' + JSON.stringify(claudeData))
+    }
     const analysisText = claudeData.content[0].text
 
-    // Parse JSON from Claude's response
     let analysis
     try {
       const jsonMatch = analysisText.match(/\{[\s\S]*\}/)
@@ -108,7 +101,6 @@ export default async function handler(req, res) {
       analysis = { description: analysisText, search_tags: [] }
     }
 
-    // Save to Supabase database
     const { data: dbData, error: dbError } = await supabase
       .from('floorplans')
       .insert({
