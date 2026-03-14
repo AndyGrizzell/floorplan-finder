@@ -30,33 +30,60 @@ export default async function handler(req, res) {
 
     const { data: { publicUrl } } = supabase.storage.from('floorplans').getPublicUrl(filePath)
 
-    const analysisPrompt = `You are analyzing a vehicle floorplan for an RV/vehicle dealership. 
-    Analyze this floorplan carefully and extract ALL of the following details:
-    1. Vehicle type (Class A, Class B, Class C, Fifth Wheel, Travel Trailer, Toy Hauler, etc.)
-    2. Approximate length if visible
-    3. Bedroom layout (front bedroom, rear bedroom, mid bedroom, bunk beds, Murphy bed, etc.)
-    4. Bathroom layout (front bath, rear bath, mid bath, split bath, full bath, half bath, outdoor shower, etc.)
-    5. Kitchen layout (island, galley, U-shape, L-shape, slide-out kitchen, etc.)
-    6. Living area features (sofa, theater seating, dinette, U-dinette, free-standing table, booth dinette, etc.)
-    7. Number of slide-outs and their locations
-    8. Special features (washer/dryer hookup, outdoor kitchen, toy hauler garage, loft, workspace, fireplace, etc.)
-    9. Entry door location (front, mid, rear)
-    10. Overall layout description in 2-3 sentences
-    
-    Return your response as a JSON object with these exact keys:
-    {
-      "vehicle_type": "",
-      "length": "",
-      "bedroom": "",
-      "bathroom": "",
-      "kitchen": "",
-      "living_area": "",
-      "slides": "",
-      "special_features": "",
-      "entry": "",
-      "description": "",
-      "search_tags": ["tag1", "tag2", ...]
-    }`
+    const analysisPrompt = `You are analyzing a vehicle seating/upfit floorplan for a paratransit and accessible vehicle dealer. 
+These are NOT RVs or recreational vehicles. These are commercial passenger vehicles including:
+- Ford Transit vans
+- Ford E-Series vans  
+- RAM Promaster vans
+- MFSABs (Multi-Function School Activity Buses)
+- Full-size buses and shuttle buses
+
+Analyze this floorplan and extract the following details with precision:
+
+1. VEHICLE TYPE: (e.g. Ford Transit, Ford E-450, RAM Promaster, MFSAB, Bus)
+2. TOTAL AMBULATORY SEATS: Count ONLY forward or rear facing ambulatory passenger seats (NOT wheelchair positions). Give exact number.
+3. TOTAL WHEELCHAIR POSITIONS (WC): Count ONLY dedicated wheelchair securement positions. Give exact number.
+4. TOTAL CAPACITY: Total passengers including both ambulatory and wheelchair.
+5. SEAT TYPES PRESENT: List all seat types visible:
+   - Forward facing ambulatory seats
+   - Rear facing ambulatory seats  
+   - Double fold-down seats (DBL FLD)
+   - Wheelchair positions (WC)
+   - Stretcher position
+6. WHEELCHAIR SECUREMENT: Brand if visible (Q'Straint QRT 360, Sure-Lok, other)
+7. ENTRY TYPE: Rear Entry (RE), Side Entry, or both
+8. ACCESS METHOD: Ramp, Lift, or both - and location (rear, side)
+9. SEATING BRAND: (Freedman, Crow, other if visible)
+10. ADA COMPLIANT: Yes or No
+11. MEDICAL TRANSPORT (MTS): Yes or No - based on whether stretcher or medical features present
+12. SPECIAL FEATURES: Partition, privacy curtain, oxygen storage, air conditioning zones, etc.
+13. VEHICLE LENGTH: If visible
+14. DESCRIPTION: 2-3 sentence summary using paratransit/accessible vehicle terminology
+
+IMPORTANT FOR SEARCH TAGS:
+- Include exact numbers like "3 ambulatory", "2 wheelchair", "5 total"
+- Include all abbreviations: "WC", "AMB", "DBL FLD", "RE", "MTS"  
+- Include brands: "Q'Straint", "Sure-Lok", "Freedman", "BraunAbility"
+- Include access: "rear ramp", "lift", "side entry"
+
+Return ONLY a JSON object with these exact keys:
+{
+  "vehicle_type": "",
+  "ambulatory_seats": 0,
+  "wheelchair_positions": 0,
+  "total_capacity": 0,
+  "seat_types": "",
+  "securement_brand": "",
+  "entry_type": "",
+  "access_method": "",
+  "seating_brand": "",
+  "ada_compliant": "",
+  "medical_transport": "",
+  "special_features": "",
+  "length": "",
+  "description": "",
+  "search_tags": ["tag1", "tag2", ...]
+}`
 
     const isPDF = fileType === 'application/pdf'
     const contentBlock = isPDF ? {
@@ -108,14 +135,18 @@ export default async function handler(req, res) {
         file_url: publicUrl,
         file_path: filePath,
         vehicle_type: analysis.vehicle_type || '',
-        length: analysis.length || '',
-        bedroom: analysis.bedroom || '',
-        bathroom: analysis.bathroom || '',
-        kitchen: analysis.kitchen || '',
-        living_area: analysis.living_area || '',
-        slides: analysis.slides || '',
+        ambulatory_seats: analysis.ambulatory_seats || 0,
+        wheelchair_positions: analysis.wheelchair_positions || 0,
+        total_capacity: analysis.total_capacity || 0,
+        seat_types: analysis.seat_types || '',
+        securement_brand: analysis.securement_brand || '',
+        entry_type: analysis.entry_type || '',
+        access_method: analysis.access_method || '',
+        seating_brand: analysis.seating_brand || '',
+        ada_compliant: analysis.ada_compliant || '',
+        medical_transport: analysis.medical_transport || '',
         special_features: analysis.special_features || '',
-        entry: analysis.entry || '',
+        length: analysis.length || '',
         description: analysis.description || '',
         search_tags: analysis.search_tags || [],
         full_analysis: analysis
